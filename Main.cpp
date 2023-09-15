@@ -5,10 +5,11 @@
 
 using namespace std;
 
+// Function to count the number of characters in a text file specified by filePath.
 int countCharactersInFile(const std::wstring& filePath) {
     wifstream file(filePath);
     if (!file.is_open()) {
-        wcerr << L"Error while listing files: " << filePath << endl;
+        wcerr << L"Error while opening file: " << filePath << endl;
         return -1;
     }
 
@@ -22,6 +23,7 @@ int countCharactersInFile(const std::wstring& filePath) {
 }
 
 int main() {
+    // Variables for listing files in the 'txt' folder.
     WIN32_FIND_DATAW findFileData;
     HANDLE hFind = FindFirstFileW(L"txt\\*.*", &findFileData);
 
@@ -32,10 +34,12 @@ int main() {
 
     int totalCharacterCount = 0;
 
+    // Loop through files in the 'txt' folder.
     do {
         if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
             wstring filePath = L"txt\\" + wstring(findFileData.cFileName);
 
+            // Check if the file has a ".txt" extension.
             if (wcsstr(findFileData.cFileName, L".txt")) {
                 int characterCount = countCharactersInFile(filePath);
                 if (characterCount != -1) {
@@ -48,8 +52,10 @@ int main() {
 
     FindClose(hFind);
 
+    // Display the total character count.
     wcout << L"Characters total: " << totalCharacterCount << endl;
 
+    // Pause the console to keep it open.
     system("pause");
     return 0;
 }
