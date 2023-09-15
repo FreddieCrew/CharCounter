@@ -3,8 +3,8 @@
 #include <filesystem>
 #include <string>
 #include <ctime>
-#include <memory>
 #include <Windows.h>
+#include <conio.h>
 
 namespace fs = std::filesystem;
 
@@ -16,8 +16,8 @@ enum ConsoleColor {
 };
 
 // Constants
-const std::string kLogFileName = "log.txt";
-const std::string kDirectoryPath = "txt";
+const char* kLogFileName = "log.txt";
+const char* kDirectoryPath = "txt";
 
 // Function to count characters in a text file.
 std::size_t CountCharacters(const fs::path& file_path) {
@@ -51,17 +51,37 @@ std::size_t CountCharacters(const fs::path& file_path) {
 }
 
 // Function to log a message to a log buffer.
-void LogMessage(const std::string& message, std::string& log_buffer) {
+void LogMessage(const char* message, char*& log_buffer) {
     std::time_t now = std::time(nullptr);
     char timestamp[50];
     std::tm time_info;
     localtime_s(&time_info, &now); // Use localtime_s for thread safety
     std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S] ", &time_info);
-    log_buffer += timestamp + message + "\n";
+
+    // Allocate memory for the new log message
+    size_t len_timestamp = strlen(timestamp);
+    size_t len_message = strlen(message);
+    char* new_message = new char[len_timestamp + len_message + 2]; // 2 for '\n' and null terminator
+    strcpy_s(new_message, len_timestamp + len_message + 2, timestamp);
+    strcat_s(new_message, len_timestamp + len_message + 2, message);
+    strcat_s(new_message, len_timestamp + len_message + 2, "\n");
+
+    // Append the new message to the log buffer
+    if (log_buffer) {
+        size_t len_log_buffer = strlen(log_buffer);
+        char* temp = new char[len_log_buffer + len_timestamp + len_message + 2];
+        strcpy_s(temp, len_log_buffer + len_timestamp + len_message + 2, log_buffer);
+        strcat_s(temp, len_log_buffer + len_timestamp + len_message + 2, new_message);
+        delete[] log_buffer;
+        log_buffer = temp;
+    }
+    else {
+        log_buffer = new_message;
+    }
 }
 
 // Function to write the log buffer to a log file.
-void WriteLog(const std::string& log_buffer) {
+void WriteLog(const char* log_buffer) {
     try {
         std::ofstream log_file(kLogFileName, std::ios::app);
         if (log_file) {
@@ -75,7 +95,7 @@ void WriteLog(const std::string& log_buffer) {
 }
 
 // Function to display an informative message in the console.
-void DisplayInfo(const std::string& message) {
+void DisplayInfo(const char* message) {
     // Set console color to green
     SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_GREEN);
     std::cout << message << std::endl;
@@ -84,95 +104,121 @@ void DisplayInfo(const std::string& message) {
 }
 
 int main() {
-    // Check if the directory exists and create it if it doesn't
-    if (!fs::exists(kDirectoryPath)) {
+    char choice;
+    bool restart = false;
+
+    do {
+        // Check if the directory exists and create it if it doesn't
+        if (!fs::exists(kDirectoryPath)) {
+            try {
+                fs::create_directory(kDirectoryPath);
+            }
+            catch (const fs::filesystem_error& e) {
+                // Set console color to red
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+                // Display an error message as a popup
+                MessageBoxA(nullptr, ("Error creating directory: " + std::string(e.what())).c_str(), "Error", MB_ICONERROR);
+                // Reset to default color
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+                char* log_buffer = nullptr;
+                LogMessage("Error creating directory.", log_buffer);
+                WriteLog(log_buffer);
+                delete[] log_buffer;
+                return 1;
+            }
+        }
+
+        if (!fs::is_directory(kDirectoryPath)) {
+            // Set console color to red
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+            // Display an error message as a popup
+            MessageBoxA(nullptr, "'txt' is not a valid directory.", "Error", MB_ICONERROR);
+            // Reset to default color
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+            char* log_buffer = nullptr;
+            LogMessage("'txt' is not a valid directory.", log_buffer);
+            WriteLog(log_buffer);
+            delete[] log_buffer;
+            return 1;
+        }
+
+        std::size_t total_character_count = 0;
+        bool found_text_files = false;
+        char* log_buffer = nullptr;
+
         try {
-            fs::create_directory(kDirectoryPath);
+            for (const auto& entry : fs::directory_iterator(kDirectoryPath)) {
+                if (entry.is_regular_file() && entry.path().has_extension()) {
+                    // Check if the file is a text file
+                    if (entry.path().extension() == ".txt") {
+                        found_text_files = true;
+                        std::size_t character_count = CountCharacters(entry.path());
+                        total_character_count += character_count;
+                        // Display an informative message in the console
+                        const char* format = "File: %s | Characters: %zu";
+                        char message[256];
+                        sprintf_s(message, sizeof(message), format, entry.path().string().c_str(), character_count);
+                        DisplayInfo(message);
+
+                        // Log to the log buffer
+                        LogMessage(message, log_buffer);
+                    }
+                }
+            }
+
+            if (!found_text_files) {
+                // Set console color to red
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+                // Display an error message as a popup
+                MessageBoxA(nullptr, "No text files found in the 'txt' directory.", "Error", MB_ICONERROR);
+                // Reset to default color
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+                const char* log_message = "No text files found in the 'txt' directory.";
+                LogMessage(log_message, log_buffer);
+            }
+
+            // Display the total characters in the console
+            const char* total_message = "Total characters: ";
+            char total_message_buffer[256];
+            sprintf_s(total_message_buffer, sizeof(total_message_buffer), "%s%zu", total_message, total_character_count);
+            DisplayInfo(total_message_buffer);
+            LogMessage(total_message_buffer, log_buffer);
+            WriteLog(log_buffer);
+            delete[] log_buffer;
         }
         catch (const fs::filesystem_error& e) {
             // Set console color to red
             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
             // Display an error message as a popup
-            MessageBoxA(nullptr, ("Error creating directory: " + std::string(e.what())).c_str(), "Error", MB_ICONERROR);
+            MessageBoxA(nullptr, ("Filesystem error: " + std::string(e.what())).c_str(), "Error", MB_ICONERROR);
             // Reset to default color
             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
-            std::string log_buffer;
-            LogMessage("Error creating directory.", log_buffer);
+            char* log_buffer = nullptr;
+            LogMessage(("Filesystem error: " + std::string(e.what())).c_str(), log_buffer);
             WriteLog(log_buffer);
+            delete[] log_buffer;
             return 1;
         }
-    }
-
-    if (!fs::is_directory(kDirectoryPath)) {
-        // Set console color to red
-        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
-        // Display an error message as a popup
-        MessageBoxA(nullptr, "'txt' is not a valid directory.", "Error", MB_ICONERROR);
-        // Reset to default color
-        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
-        std::string log_buffer;
-        LogMessage("'txt' is not a valid directory.", log_buffer);
-        WriteLog(log_buffer);
-        return 1;
-    }
-
-    std::size_t total_character_count = 0;
-    bool found_text_files = false;
-    std::string log_buffer;
-
-    try {
-        for (const auto& entry : fs::directory_iterator(kDirectoryPath)) {
-            if (entry.is_regular_file() && entry.path().has_extension()) {
-                // Check if the file is a text file
-                if (entry.path().extension() == ".txt") {
-                    found_text_files = true;
-                    std::size_t character_count = CountCharacters(entry.path());
-                    total_character_count += character_count;
-                    // Display an informative message in the console
-                    DisplayInfo("File: " + entry.path().string() + " | Characters: " + std::to_string(character_count));
-
-                    // Log to the log buffer
-                    LogMessage("File: " + entry.path().string() + " | Characters: " + std::to_string(character_count), log_buffer);
-                }
-            }
-        }
-
-        if (!found_text_files) {
-            // Set console color to red
-            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
-            // Display an error message as a popup
-            MessageBoxA(nullptr, "No text files found in the 'txt' directory.", "Error", MB_ICONERROR);
-            // Reset to default color
-            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
-            LogMessage("No text files found in the 'txt' directory.", log_buffer);
-            WriteLog(log_buffer);
+        catch (const std::exception& e) {
+            // Handle other exceptions
+            std::cerr << "Exception: " << e.what() << std::endl;
             return 1;
         }
 
-        // Display the total characters in the console
-        DisplayInfo("Total characters: " + std::to_string(total_character_count));
-        LogMessage("Total characters: " + std::to_string(total_character_count), log_buffer);
-        WriteLog(log_buffer);
-    }
-    catch (const fs::filesystem_error& e) {
-        // Set console color to red
-        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
-        // Display an error message as a popup
-        MessageBoxA(nullptr, ("Filesystem error: " + std::string(e.what())).c_str(), "Error", MB_ICONERROR);
-        // Reset to default color
-        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
-        LogMessage("Filesystem error: " + std::string(e.what()), log_buffer);
-        WriteLog(log_buffer);
-        return 1;
-    }
-    catch (const std::exception& e) {
-        // Handle other exceptions
-        // You can log the exception details or display an error message here
-        std::cerr << "Exception: " << e.what() << std::endl;
-        return 1;
-    }
+        // Ask the user if they want to restart or quit
+        std::cout << "Press 'R' to restart or 'Q' to quit: \n";
+        choice = _getch(); // Get a single character from the user
 
-    // Pause the console to keep it open.
-    system("pause");
+        if (choice == 'R' || choice == 'r') {
+            restart = true;
+        }
+        else if (choice == 'Q' || choice == 'q') {
+            restart = false;
+        }
+        else {
+            restart = false;
+        }
+    } while (restart);
+
     return 0;
 }
