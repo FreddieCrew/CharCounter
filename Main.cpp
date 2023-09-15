@@ -1,20 +1,33 @@
 #include <iostream>
 #include <fstream>
-#include <windows.h>
+#include <filesystem>
 #include <string>
+#include <ctime>
+#include <Windows.h>
 
-using namespace std;
+namespace fs = std::filesystem;
 
-// Function to count the number of characters in a text file specified by filePath.
-int countCharactersInFile(const std::wstring& filePath) {
-    wifstream file(filePath);
-    if (!file.is_open()) {
-        wcerr << L"Error while opening file: " << filePath << endl;
-        return -1;
+// Define colors for the console
+enum ConsoleColor {
+    COLOR_DEFAULT = 7,
+    COLOR_RED = 12,
+    COLOR_GREEN = 10,
+};
+
+// Function to count the number of characters in a text file.
+std::size_t CountCharactersInFile(const fs::path& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file) {
+        // Set console color to red
+        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+        std::cerr << "Error while opening file: " << filePath.string() << std::endl;
+        // Reset to default color
+        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+        return 0;
     }
 
-    int characterCount = 0;
-    wchar_t c;
+    std::size_t characterCount = 0;
+    char c;
     while (file.get(c)) {
         characterCount++;
     }
@@ -22,38 +35,115 @@ int countCharactersInFile(const std::wstring& filePath) {
     return characterCount;
 }
 
-int main() {
-    // Variables for listing files in the 'txt' folder.
-    WIN32_FIND_DATAW findFileData;
-    HANDLE hFind = FindFirstFileW(L"txt\\*.*", &findFileData);
+// Function to log a message to a log buffer.
+void LogMessage(const std::string& message, std::string& logBuffer) {
+    std::time_t now = std::time(nullptr);
+    char timestamp[50];
+    std::tm timeInfo;
+    localtime_s(&timeInfo, &now); // Use localtime_s for thread safety
+    std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S] ", &timeInfo);
+    logBuffer += timestamp + message + "\n";
+}
 
-    if (hFind == INVALID_HANDLE_VALUE) {
-        wcerr << L"Error while listing the folder 'txt'." << endl;
+// Function to write the log buffer to a log file.
+void WriteLogToFile(const std::string& logBuffer) {
+    std::ofstream logFile("log.txt", std::ios::app);
+    if (logFile) {
+        logFile << logBuffer;
+    }
+}
+
+// Function to display an informative message in the console.
+void DisplayInfoMessage(const std::string& message) {
+    // Set console color to green
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_GREEN);
+    std::cout << message << std::endl;
+    // Reset to default color
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+}
+
+int main() {
+    // Directory path
+    fs::path directoryPath = "txt";
+
+    // Check if the directory exists and create it if it doesn't
+    if (!fs::exists(directoryPath)) {
+        try {
+            fs::create_directory(directoryPath);
+        }
+        catch (const fs::filesystem_error& e) {
+            // Set console color to red
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+            // Display an error message as a popup
+            MessageBoxA(nullptr, ("Error creating directory: " + std::string(e.what())).c_str(), "Error", MB_ICONERROR);
+            // Reset to default color
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+            std::string logBuffer;
+            LogMessage("Error creating directory.", logBuffer);
+            WriteLogToFile(logBuffer);
+            return 1;
+        }
+    }
+
+    if (!fs::is_directory(directoryPath)) {
+        // Set console color to red
+        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+        // Display an error message as a popup
+        MessageBoxA(nullptr, "'txt' is not a valid directory.", "Error", MB_ICONERROR);
+        // Reset to default color
+        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+        std::string logBuffer;
+        LogMessage("'txt' is not a valid directory.", logBuffer);
+        WriteLogToFile(logBuffer);
         return 1;
     }
 
-    int totalCharacterCount = 0;
+    std::size_t totalCharacterCount = 0;
+    bool foundTextFiles = false;
+    std::string logBuffer;
 
-    // Loop through files in the 'txt' folder.
-    do {
-        if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            wstring filePath = L"txt\\" + wstring(findFileData.cFileName);
+    try {
+        for (const auto& entry : fs::directory_iterator(directoryPath)) {
+            if (entry.is_regular_file() && entry.path().has_extension()) {
+                foundTextFiles = true;
+                std::size_t characterCount = CountCharactersInFile(entry.path());
+                totalCharacterCount += characterCount;
+                // Display an informative message in the console
+                DisplayInfoMessage("File: " + entry.path().string() + " | Characters: " + std::to_string(characterCount));
 
-            // Check if the file has a ".txt" extension.
-            if (wcsstr(findFileData.cFileName, L".txt")) {
-                int characterCount = countCharactersInFile(filePath);
-                if (characterCount != -1) {
-                    totalCharacterCount += characterCount;
-                    wcout << L"File: " << filePath << L" | Characters: " << characterCount << endl;
-                }
+                // Log to the log buffer
+                LogMessage("File: " + entry.path().string() + " | Characters: " + std::to_string(characterCount), logBuffer);
             }
         }
-    } while (FindNextFileW(hFind, &findFileData) != 0);
 
-    FindClose(hFind);
+        if (!foundTextFiles) {
+            // Set console color to red
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+            // Display an error message as a popup
+            MessageBoxA(nullptr, "No text files found in the 'txt' directory.", "Error", MB_ICONERROR);
+            // Reset to default color
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+            LogMessage("No text files found in the 'txt' directory.", logBuffer);
+            WriteLogToFile(logBuffer);
+            return 1;
+        }
 
-    // Display the total character count.
-    wcout << L"Characters total: " << totalCharacterCount << endl;
+        // Display the total characters in the console
+        DisplayInfoMessage("Characters total: " + std::to_string(totalCharacterCount));
+        LogMessage("Characters total: " + std::to_string(totalCharacterCount), logBuffer);
+        WriteLogToFile(logBuffer);
+    }
+    catch (const fs::filesystem_error& e) {
+        // Set console color to red
+        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
+        // Display an error message as a popup
+        MessageBoxA(nullptr, ("Filesystem error: " + std::string(e.what())).c_str(), "Error", MB_ICONERROR);
+        // Reset to default color
+        SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
+        LogMessage("Filesystem error: " + std::string(e.what()), logBuffer);
+        WriteLogToFile(logBuffer);
+        return 1;
+    }
 
     // Pause the console to keep it open.
     system("pause");
