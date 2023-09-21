@@ -59,26 +59,25 @@ void LogMessage(const std::string& message, LogFile& logFile) {
 // Function to count characters in a text file
 std::size_t CountCharacters(const fs::path& file_path) {
     try {
-        std::ifstream file(file_path, std::ios::binary | std::ios::ate);
+        std::ifstream file(file_path, std::ios::binary);
         if (!file.is_open()) {
             throw std::runtime_error("Error opening file: " + file_path.string());
         }
 
-        std::size_t file_size = static_cast<std::size_t>(file.tellg());
-        if (file_size > kMaxFileSize) {
-            throw std::runtime_error("File size exceeds the limit (10 MB): " + file_path.string());
-        }
-
         std::size_t character_count = 0;
         char c;
-        file.seekg(0);
+
         while (file.get(c)) {
             character_count++;
+            if (character_count > kMaxFileSize) {
+                throw std::runtime_error("File size exceeds the limit (10 MB): " + file_path.string());
+            }
         }
+
         return character_count;
     }
-    catch (const std::exception& e) {
-        throw;
+    catch (const std::exception& ex) {
+        throw; // Re-throw the exception
     }
 }
 
@@ -139,13 +138,13 @@ int main() {
             // Log the total character count with timestamp
             LogMessage(total_message, logFile);
         }
-        catch (const std::exception& e) {
+        catch (const std::exception& ex) {
             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_RED);
-            std::cerr << "Exception: " << e.what() << std::endl;
+            std::cerr << "Exception: " << ex.what() << std::endl;
 
             // Log the exception with timestamp
             LogFile logFile(kLogFileName);
-            LogMessage("Exception: " + std::string(e.what()), logFile);
+            LogMessage("Exception: " + std::string(ex.what()), logFile);
 
             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), COLOR_DEFAULT);
         }
